@@ -17,8 +17,8 @@
 # --------------------------------------------------------
 import io
 import os
-import ast
 import json
+from yaml import safe_load, YAMLError
 from pathlib import Path
 from safetensors.torch import load as load_st
 
@@ -156,15 +156,22 @@ def auto_load_model(args, model, model_without_ddp, optimizer, loss_scaler, mode
             _load_checkpoint_for_ema(model_ema, {'state_dict_ema': checkpoint['model_ema']})
             print("With EMA!")
 
-def parse_metadata(metadata_str):
+
+MAX_LEN_YAML_PARSE = 10_000
+
+def safe_parse_metadata(metadata_str):
     metadata = {}
     for k, v in metadata_str.items():
+        if not isinstance(v, str) or len(v) > MAX_LEN_YAML_PARSE:
+            metadata[k] = v
+            continue
         try:
-            v_parsed = ast.literal_eval(v)
-        except:
-            v_parsed = v
-        metadata[k] = v_parsed
+            parsed = safe_load(v.replace('None', 'null'))
+            metadata[k] = parsed
+        except YAMLError:
+            metadata[k] = v
     return metadata
+
 
 def load_safetensors(safetensors_path, return_metadata=True):
     with open(safetensors_path, 'rb') as f:
@@ -180,6 +187,6 @@ def load_safetensors(safetensors_path, return_metadata=True):
     metadata_bytes = data[8 : 8 + n]
     header = json.loads(metadata_bytes)
     metadata = header.get("__metadata__", {})
-    metadata = parse_metadata(metadata)
+    metadata = safe_parse_metadata(metadata)
 
     return tensors, metadata
